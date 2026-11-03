@@ -1,0 +1,23 @@
+{
+  "name": "craft-stor",
+  "version": "1.0.0",
+  "description": "Boutique Minecraft payée en diamants",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build-catalog": "node scripts/build-catalog.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "express-session": "^1.19.0",
+    "bcryptjs": "^3.0.3"
+  },
+  "private": true,
+  "devDependencies": {
+    "minecraft-data": "^3.119.0",
+    "minecraft-assets": "^1.19.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
