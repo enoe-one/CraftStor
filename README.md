@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # craft-stor
 
 Boutique Minecraft payée en **diamants** : catalogue public, comptes membres, commandes, tableau de bord admin.
@@ -94,3 +95,7 @@ Le dépôt ne contient aucun secret : `data/db.json` et le secret de session son
 - **Données** : tout est dans `data/db.json` (comptes, commandes, prix modifiés, codes). Sauvegardez ce fichier. Les sessions sont en mémoire : un redémarrage déconnecte les membres.
 - **Regénérer le catalogue** (nouvelle version de Minecraft) : `npm install --include=dev` puis `npm run build-catalog`.
 - Les icônes viennent des textures du jeu (paquet `minecraft-assets`). Site non officiel, sans lien avec Mojang ni Microsoft.
+=======
+# CraftStor
+site for surviedesgenschill
+>>>>>>> bf7529e8ec6205bc03f6e072336f5f18c7b1e1e7
