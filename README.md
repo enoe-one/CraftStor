@@ -12,21 +12,14 @@ npm start
 
 Le site est alors sur http://localhost:3000.
 
-Au **premier lancement**, le compte administrateur est créé (pseudo `Enoe`) et son mot de passe est affiché **une seule fois** dans la console. Pour choisir le vôtre dès le départ :
 
-```bash
-ADMIN_PASSWORD="votre-mot-de-passe" npm start
-```
 
-Mot de passe admin perdu : `node scripts/reset-admin.js "nouveau-mot-de-passe"` puis relancez le serveur.
 
 ## Variables d'environnement
 
 | Variable | Rôle | Défaut |
 |---|---|---|
 | `PORT` | port du serveur | `3000` |
-| `ADMIN_NAME` | pseudo du compte admin (à la création) | `Enoe` |
-| `ADMIN_PASSWORD` | mot de passe admin (à la création) | généré aléatoirement |
 | `COOKIE_SECURE=1` | cookie de session réservé au HTTPS | désactivé |
 | `TRUST_PROXY=1` | à activer derrière un reverse proxy (nginx, Caddy…) | désactivé |
 | `STATE_DIR` | dossier où sont stockés `db.json` (comptes, commandes…) et le secret de session | `data/` |
