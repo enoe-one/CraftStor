@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # craft-stor
 
 Boutique Minecraft payée en **diamants** : catalogue public, comptes membres, commandes, tableau de bord admin.
