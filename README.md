@@ -28,8 +28,10 @@ Mot de passe admin perdu : `node scripts/reset-admin.js "nouveau-mot-de-passe"` 
 | `ADMIN_PASSWORD` | mot de passe admin (à la création) | généré aléatoirement |
 | `COOKIE_SECURE=1` | cookie de session réservé au HTTPS | désactivé |
 | `TRUST_PROXY=1` | à activer derrière un reverse proxy (nginx, Caddy…) | désactivé |
-| `STATE_DIR` | dossier où sont stockés `db.json` (comptes, commandes…) et le secret de session | `data/` |
-| `SESSION_SECRET` | secret de session | généré dans le dossier `STATE_DIR` |
+| `DATABASE_URL` | lien de connexion Postgres : si défini, **toutes les données** (comptes, commandes, prix, codes) y sont stockées | fichier local |
+| `STATE_DIR` | sans `DATABASE_URL` : dossier du fichier `db.json` | `data/` |
+| `PGSSL=disable` | désactive le SSL vers Postgres (base locale uniquement) | SSL activé |
+| `SESSION_SECRET` | secret de session (facultatif) | aléatoire à chaque démarrage |
 
 **En ligne, mettez le site derrière HTTPS** (Caddy ou nginx) et lancez avec `COOKIE_SECURE=1 TRUST_PROXY=1`. Sans HTTPS, les mots de passe circulent en clair sur le réseau.
 
@@ -81,16 +83,21 @@ GitHub conserve le code, mais **il n'exécute pas** un site avec comptes et base
 
 2. **Le faire tourner chez un hébergeur Node.js** relié à ce dépôt (Render, Railway, Fly.io, ou un petit VPS) :
    - build : `npm install` · démarrage : `npm start`
-   - variables : `ADMIN_PASSWORD`, `COOKIE_SECURE=1`, `TRUST_PROXY=1`, et `STATE_DIR` pointant vers un **disque persistant** (ex. `/var/data`)
-   - ⚠ sans disque persistant (cas des offres gratuites), comptes et commandes sont **effacés à chaque redéploiement**. Prévoyez un disque, ou un VPS.
+   - variables : `ADMIN_PASSWORD`, `COOKIE_SECURE=1`, `TRUST_PROXY=1`, et `DATABASE_URL` (voir ci-dessous)
 
-Le dépôt ne contient aucun secret : `data/db.json` et le secret de session sont exclus par `.gitignore`.
+3. **Stocker les données dans une base Postgres gratuite.** Sur les offres gratuites, le disque du serveur est effacé à chaque redémarrage : sans base externe, comptes et commandes disparaissent. Créez une base chez un fournisseur qui ne la supprime pas (par exemple Neon), copiez son lien de connexion (`postgresql://…`) et mettez-le dans la variable `DATABASE_URL`. La table est créée automatiquement au premier démarrage.
+   - ⚠ La base gratuite de **Render** expire après 30 jours puis est supprimée : à éviter.
+   - Une base gratuite qui se met en veille peut mettre quelques secondes à répondre au premier accès : le site réessaie tout seul.
+   - Aucune sauvegarde automatique sur les offres gratuites : exportez de temps en temps (`pg_dump "$DATABASE_URL" > sauvegarde.sql`).
+
+Le dépôt ne contient aucun secret : `data/db.json` est exclu par `.gitignore`, et le lien `DATABASE_URL` ne doit **jamais** être écrit dans le code ni dans GitHub, seulement dans les variables de l'hébergeur.
 
 ## Notes
 
 - **Mots de passe** : stockés hachés (bcrypt). Personne ne peut les lire, y compris l'admin, qui peut en définir un nouveau.
 - **Items masqués** : les items impossibles à obtenir en survie (bedrock, command block, spawner, œufs d'apparition…) sont masqués. La liste est une estimation : vous pouvez masquer ou afficher n'importe quel article depuis le panneau admin. Les diamants et blocs de diamant ne sont pas vendus (c'est la monnaie).
 - **Réductions** : par article ou globale ; si les deux existent, la plus forte s'applique (pas de cumul). Les codes de remise s'appliquent ensuite sur le total de la commande. Les prix sont arrondis au diamant supérieur.
-- **Données** : tout est dans `data/db.json` (comptes, commandes, prix modifiés, codes). Sauvegardez ce fichier. Les sessions sont en mémoire : un redémarrage déconnecte les membres.
+- **Données** : comptes, commandes, prix modifiés et codes sont dans Postgres (`DATABASE_URL`) ou, sans cette variable, dans `data/db.json` : sauvegardez-les. Les sessions sont en mémoire : un redémarrage déconnecte les membres (sans perte de données).
+- **Mot de passe admin perdu** : `node scripts/reset-admin.js "nouveau"` fonctionne avec la base Postgres si `DATABASE_URL` est défini dans votre terminal.
 - **Regénérer le catalogue** (nouvelle version de Minecraft) : `npm install --include=dev` puis `npm run build-catalog`.
 - Les icônes viennent des textures du jeu (paquet `minecraft-assets`). Site non officiel, sans lien avec Mojang ni Microsoft.

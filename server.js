@@ -8,10 +8,7 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');          // catalogue (versionné dans git)
-const STATE_DIR = process.env.STATE_DIR || DATA_DIR;      // comptes, commandes, secret : à placer sur un disque persistant en ligne
-fs.mkdirSync(STATE_DIR, { recursive: true });
-const DB_FILE = path.join(STATE_DIR, 'db.json');
-const SECRET_FILE = path.join(STATE_DIR, 'session-secret.txt');
+const store = require('./store');                         // Postgres (DATABASE_URL) ou fichier JSON
 const ADMIN_NAME = process.env.ADMIN_NAME || 'Enoe';
 
 // ------------------------------------------------------------------ stockage (JSON, écriture atomique)
@@ -19,7 +16,6 @@ const catalog = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'catalog.json'), 
 const catalogById = new Map(catalog.map(i => [i.id, i]));
 
 let db = { users: [], orders: [], codes: [], overrides: {}, settings: { globalDiscount: 0 }, seq: { user: 0, order: 0 } };
-if (fs.existsSync(DB_FILE)) db = Object.assign(db, JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
 
 let saveTimer = null;
 function save() {
@@ -27,29 +23,29 @@ function save() {
   saveTimer = setTimeout(saveNow, 50);
 }
 function saveNow() {
-  const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, DB_FILE);
+  clearTimeout(saveTimer);
+  return store.write(db);
 }
-process.on('SIGINT', () => { saveNow(); process.exit(0); });
-process.on('SIGTERM', () => { saveNow(); process.exit(0); });
+async function shutdown() { await saveNow(); await store.close(); process.exit(0); }
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 // ------------------------------------------------------------------ compte admin
-(function ensureAdmin() {
+async function ensureAdmin() {
   if (db.users.some(u => u.isAdmin)) return;
   const pwd = process.env.ADMIN_PASSWORD || crypto.randomBytes(9).toString('base64url');
   db.users.push({
     id: ++db.seq.user, mcName: ADMIN_NAME, discord: 'admin', email: 'admin@craft-stor.local',
     passHash: bcrypt.hashSync(pwd, 10), diamonds: 0, favorites: [], isAdmin: true, createdAt: Date.now()
   });
-  saveNow();
+  await saveNow();
   console.log('\n==============================================================');
   console.log(' Compte administrateur créé');
   console.log('   pseudo   : ' + ADMIN_NAME);
   if (!process.env.ADMIN_PASSWORD) console.log('   mot de passe : ' + pwd + '   (notez-le, il ne sera plus affiché)');
   console.log(' Mot de passe perdu : node scripts/reset-admin.js');
   console.log('==============================================================\n');
-})();
+}
 
 // ------------------------------------------------------------------ prix
 function effectiveItem(base) {
@@ -69,11 +65,8 @@ app.set('trust proxy', process.env.TRUST_PROXY ? 1 : 0);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
 
-let secret = process.env.SESSION_SECRET;
-if (!secret) {
-  if (!fs.existsSync(SECRET_FILE)) fs.writeFileSync(SECRET_FILE, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-  secret = fs.readFileSync(SECRET_FILE, 'utf8').trim();
-}
+// Les sessions sont en mémoire : le secret n'a pas besoin de survivre à un redémarrage.
+const secret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 app.use(session({
   name: 'craftstor.sid', secret, resave: false, saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: 'lax', secure: !!process.env.COOKIE_SECURE, maxAge: 1000 * 60 * 60 * 24 * 14 }
@@ -373,4 +366,9 @@ app.use((err, req, res, next) => {
   fail(res, 500, 'Erreur interne du serveur.');
 });
 
-app.listen(PORT, () => console.log(`craft-stor : http://localhost:${PORT}`));
+(async () => {
+  const saved = await store.load();
+  if (saved) db = Object.assign(db, saved);
+  await ensureAdmin();
+  app.listen(PORT, () => console.log(`craft-stor : http://localhost:${PORT}  (données : ${store.kind})`));
+})().catch(e => { console.error('Démarrage impossible :', e.message); process.exit(1); });
