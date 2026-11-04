@@ -1,3 +1,4 @@
+
 # craft-stor
 
 Boutique Minecraft payée en **diamants** : catalogue public, comptes membres, commandes, tableau de bord admin.
@@ -11,21 +12,14 @@ npm start
 
 Le site est alors sur http://localhost:3000.
 
-Au **premier lancement**, le compte administrateur est créé (pseudo `Enoe`) et son mot de passe est affiché **une seule fois** dans la console. Pour choisir le vôtre dès le départ :
 
-```bash
-ADMIN_PASSWORD="votre-mot-de-passe" npm start
-```
 
-Mot de passe admin perdu : `node scripts/reset-admin.js "nouveau-mot-de-passe"` puis relancez le serveur.
 
 ## Variables d'environnement
 
 | Variable | Rôle | Défaut |
 |---|---|---|
 | `PORT` | port du serveur | `3000` |
-| `ADMIN_NAME` | pseudo du compte admin (à la création) | `Enoe` |
-| `ADMIN_PASSWORD` | mot de passe admin (à la création) | généré aléatoirement |
 | `COOKIE_SECURE=1` | cookie de session réservé au HTTPS | désactivé |
 | `TRUST_PROXY=1` | à activer derrière un reverse proxy (nginx, Caddy…) | désactivé |
 | `DATABASE_URL` | lien de connexion Postgres : si défini, **toutes les données** (comptes, commandes, prix, codes) y sont stockées | fichier local |
@@ -116,3 +110,6 @@ Le dépôt ne contient aucun secret : `data/db.json` est exclu par `.gitignore`,
 - **Mot de passe admin perdu** : `node scripts/reset-admin.js "nouveau"` fonctionne avec la base Postgres si `DATABASE_URL` est défini dans votre terminal.
 - **Regénérer le catalogue** (nouvelle version de Minecraft) : `npm install --include=dev` puis `npm run build-catalog`.
 - Les icônes viennent des textures du jeu (paquet `minecraft-assets`). Site non officiel, sans lien avec Mojang ni Microsoft.
+=======
+# CraftStor
+site for surviedesgenschill
