@@ -15,20 +15,49 @@ const ADMIN_NAME = process.env.ADMIN_NAME || 'Enoe';
 const catalog = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'catalog.json'), 'utf8'));
 const catalogById = new Map(catalog.map(i => [i.id, i]));
 
-let db = { users: [], orders: [], codes: [], overrides: {}, settings: { globalDiscount: 0 }, seq: { user: 0, order: 0 } };
+const emptyDb = () => ({ users: [], orders: [], codes: [], overrides: {}, settings: { globalDiscount: 0 }, seq: { user: 0, order: 0 } });
+const db = emptyDb(); // objet unique, remplacé « en place » (voir syncFromStore)
 
-let saveTimer = null;
+let saveTimer = null, dirty = false, inflight = 0;
 function save() {
+  dirty = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, 50);
 }
 function saveNow() {
-  clearTimeout(saveTimer);
-  return store.write(db);
+  clearTimeout(saveTimer); saveTimer = null; dirty = false;
+  inflight++;
+  return store.write(db).finally(() => { inflight--; });
 }
-async function shutdown() { await saveNow(); await store.close(); process.exit(0); }
+async function shutdown() {
+  if (dirty) await saveNow(); // on n'écrit à l'arrêt que s'il y a quelque chose à sauvegarder
+  await store.close();
+  process.exit(0);
+}
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// Pendant un redéploiement, l'ancienne et la nouvelle version tournent en même temps sur la même base.
+// Une instance dont les données sont périmées ne doit JAMAIS écraser celles de l'autre :
+//  1) avant toute requête qui modifie quelque chose, on relit la base si une autre instance y a écrit ;
+//  2) si, malgré tout, une écriture entre en conflit, l'instance s'arrête (et redémarre avec les données à jour).
+store.onConflict(() => {
+  console.error('CONFLIT : une autre instance du site a modifié la base. Cette instance s’arrête pour ne pas écraser ses données ; elle redémarre avec les données à jour.');
+  process.exit(1);
+});
+let syncing = null;
+async function syncFromStore() {
+  if (!store.usesPostgres || dirty || saveTimer || inflight > 0) return; // des modifications locales sont en cours d'écriture
+  if (syncing) return syncing;
+  syncing = (async () => {
+    if (!(await store.isStale())) return;
+    const fresh = await store.load();
+    for (const k of Object.keys(db)) delete db[k];
+    Object.assign(db, emptyDb(), fresh || {});
+    console.log('Données rechargées depuis la base (une autre instance y avait écrit).');
+  })().finally(() => { syncing = null; });
+  return syncing;
+}
 
 // ------------------------------------------------------------------ compte admin
 async function ensureAdmin() {
@@ -84,7 +113,7 @@ app.use((req, res, next) => {
 app.use('/api', (req, res, next) => {
   if (['GET', 'HEAD'].includes(req.method)) return next();
   if (req.get('x-requested-with') !== 'craftstor') return res.status(403).json({ error: 'Requête refusée.' });
-  next();
+  syncFromStore().then(() => next(), next); // données à jour avant toute modification
 });
 
 // Limiteur simple en mémoire
@@ -450,7 +479,7 @@ app.use((err, req, res, next) => {
 
 (async () => {
   const saved = await store.load();
-  if (saved) db = Object.assign(db, saved);
+  if (saved) Object.assign(db, saved);
   await ensureAdmin();
   app.listen(PORT, () => console.log(`craft-stor : http://localhost:${PORT}  (données : ${store.kind})`));
 })().catch(e => { console.error('Démarrage impossible :', e.message); process.exit(1); });
