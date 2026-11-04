@@ -63,7 +63,7 @@ function effectiveItem(base) {
 const app = express();
 app.set('trust proxy', process.env.TRUST_PROXY ? 1 : 0);
 app.disable('x-powered-by');
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '300kb' })); // 300 Ko : assez pour importer le fichier de prix complet (~1 500 lignes)
 
 // Les sessions sont en mémoire : le secret n'a pas besoin de survivre à un redémarrage.
 const secret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -321,6 +321,87 @@ app.post('/api/admin/items/:id', requireAdmin, (req, res) => {
   res.json({ item: { id: e.id, price: e.price, itemDiscount: e.itemDiscount, hidden: e.hidden } });
 });
 
+// ------------------------------------------------------------------ prix par fichier .txt (export / import)
+// Format : une ligne par article, « NOM : PRIX ». NOM = identifiant (iron_ingot) ou nom anglais (Iron Ingot).
+// Les lignes vides et les commentaires (# …) sont ignorés. Le prix est celui du stack (articles empilables) ou de la pièce.
+const normKey = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+const idIndex = new Map(catalog.map(it => [normKey(it.id), it]));   // identifiant exact : toujours prioritaire
+const nameIndex = new Map();                                          // nom anglais : peut être partagé par plusieurs articles
+for (const it of catalog) { const k = normKey(it.name); if (!nameIndex.has(k)) nameIndex.set(k, []); nameIndex.get(k).push(it); }
+const lookup = key => idIndex.has(key) ? [idIndex.get(key)] : (nameIndex.get(key) || null);
+// Raccourcis pour les matières premières dont le nom du jeu est plus long (IRON = lingot de fer…)
+const ALIASES = { iron: 'iron_ingot', gold: 'gold_ingot', copper: 'copper_ingot', netherite: 'netherite_ingot', lapis: 'lapis_lazuli' };
+const unitWord = it => it.unit === 'stack' ? `stack de ${it.stackSize}` : it.unit === 'service' ? 'service' : 'pièce';
+
+function setPrice(base, p) {
+  const o = db.overrides[base.id] || (db.overrides[base.id] = {});
+  if (p === base.price) delete o.price; else o.price = p;
+  if (!Object.keys(o).length) delete db.overrides[base.id];
+}
+
+function suggest(key) {
+  if (key.length < 2) return [];
+  return catalog.filter(i => normKey(i.id).includes(key) || normKey(i.name).includes(key)).slice(0, 5).map(i => i.id);
+}
+
+function parsePriceFile(text) {
+  const rows = [], errors = [], seen = new Map();
+  const lines = String(text).replace(/^﻿/, '').split(/\r?\n/);
+  let valid = 0;
+  lines.forEach((raw, idx) => {
+    const n = idx + 1;
+    const clean = raw.replace(/\s+#.*$/, '').trim();
+    if (!clean || clean.startsWith('#') || clean.startsWith('//')) return;
+    const err = (reason, extra) => errors.push({ line: n, text: raw.trim().slice(0, 120), reason, ...extra });
+    const m = clean.match(/^(.+?)\s*[:=;\t]\s*(-?\d+(?:[.,]\d+)?)\s*(?:💎|diamants?|diamonds?)?$/i);
+    if (!m) return err('Ligne illisible. Format attendu : NOM : PRIX (exemple : iron_ingot : 4)');
+    const priceStr = m[2];
+    if (/[.,]/.test(priceStr)) return err('Le prix doit être un nombre entier de diamants.');
+    const price = Number(priceStr);
+    if (price < 0 || price > 100000) return err('Prix invalide (entier entre 0 et 100 000).');
+    if (++valid > 4000) return err('Trop de lignes (4 000 maximum).');
+    const key = normKey(m[1]);
+    let matches = lookup(key), via = null;
+    if (!matches && ALIASES[key] && lookup(ALIASES[key])) { matches = lookup(ALIASES[key]); via = 'alias'; }
+    if (!matches) return err(`Article « ${m[1].trim()} » introuvable.`, { suggestions: suggest(key) });
+    const uniq = [...new Set(matches)];
+    if (uniq.length > 1) return err(`« ${m[1].trim()} » correspond à plusieurs articles : précisez avec l’identifiant.`, { suggestions: uniq.slice(0, 5).map(i => i.id) });
+    const base = uniq[0];
+    if (seen.has(base.id)) return err(`Article déjà défini à la ligne ${seen.get(base.id)} : ligne ignorée.`);
+    seen.set(base.id, n);
+    const old = effectiveItem(base).price;
+    rows.push({ line: n, input: m[1].trim(), id: base.id, name: base.name, unit: unitWord(base), oldPrice: old, newPrice: price, changed: old !== price, via });
+  });
+  return { rows, errors, base: id => catalogById.get(id) };
+}
+
+app.get('/api/admin/prices/export', requireAdmin, (req, res) => {
+  const head = [
+    '# craft-stor — prix des articles (en diamants)',
+    '# Format : identifiant : prix      (le texte après # est ignoré)',
+    '# Prix = un stack complet pour les articles empilables, sinon la pièce.',
+    '# Modifiez les chiffres puis réimportez ce fichier depuis Admin → Prix & réductions.',
+    ''
+  ];
+  const body = catalog.map(i => { const e = effectiveItem(i); return `${i.id} : ${e.price}   # ${i.name} (${unitWord(i)})${e.hidden ? ' [masqué]' : ''}`; });
+  res.type('text/plain; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="craft-stor-prix.txt"');
+  res.send([...head, ...body, ''].join('\n'));
+});
+
+app.post('/api/admin/prices/import', requireAdmin, (req, res) => {
+  if (typeof req.body.text !== 'string' || !req.body.text.trim()) return fail(res, 400, 'Le fichier est vide.');
+  const { rows, errors } = parsePriceFile(req.body.text);
+  const changes = rows.filter(r => r.changed);
+  let applied = false;
+  if (req.body.apply === true) {
+    for (const r of changes) setPrice(catalogById.get(r.id), r.newPrice);
+    if (changes.length) save();
+    applied = true;
+  }
+  res.json({ applied, total: rows.length + errors.length, valid: rows.length, unchanged: rows.length - changes.length, changes, errors });
+});
+
 app.post('/api/admin/settings', requireAdmin, (req, res) => {
   const d = Number(req.body.globalDiscount);
   if (!Number.isInteger(d) || d < 0 || d > 100) return fail(res, 400, 'Réduction invalide (0 à 100 %).');
@@ -362,6 +443,7 @@ app.use('/api', (req, res) => fail(res, 404, 'Route inconnue.'));
 app.get('/{*splat}', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.parse.failed') return fail(res, 400, 'Requête invalide.');
+  if (err && err.type === 'entity.too.large') return fail(res, 413, 'Fichier ou requête trop volumineux (300 Ko maximum).');
   console.error(err);
   fail(res, 500, 'Erreur interne du serveur.');
 });

@@ -160,9 +160,14 @@ for (const it of mcData.itemsArray) {
   const info = priceInfo(n);
   const hasImg = writeImg(n, n);
   if (!hasImg) imgMiss.push(n);
+  // minecraft-data nomme tous les disques « Music Disc » : on ajoute le titre pour les distinguer.
+  const title = w => w.charAt(0).toUpperCase() + w.slice(1);
+  const displayName = (n.startsWith('music_disc_') && it.displayName === 'Music Disc')
+    ? 'Music Disc — ' + n.slice('music_disc_'.length).split('_').map(title).join(' ')
+    : it.displayName;
   items.push({
     id: n,
-    name: it.displayName,
+    name: displayName,
     cat: categorize(n),
     price: info.price,
     unit: (stackable && !info.piece) ? 'stack' : 'piece',

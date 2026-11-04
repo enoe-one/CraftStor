@@ -42,6 +42,21 @@ Mot de passe admin perdu : `node scripts/reset-admin.js "nouveau-mot-de-passe"` 
 - **Commande** : statut « Commande en cours — règlement non effectué » jusqu'à ce que l'admin accepte le règlement. L'acceptation **débite le solde** du membre (refusée si le solde est insuffisant).
 - **Membre** : historique des commandes, favoris, solde. Pour recharger : contacter Enoe (l'admin ajoute les diamants).
 - **Admin** : toutes les commandes (accepter / annuler), tous les comptes (ajouter ou retirer des diamants, définir un nouveau mot de passe), prix et réductions par article, promotion globale, codes de remise (pourcentage, limite d'utilisations, activation).
+- **Prix par fichier .txt** (Admin → Prix & réductions) : téléchargez les prix actuels (modèle), modifiez les chiffres, puis réimportez le fichier. Un aperçu s'affiche avant toute modification.
+
+### Format du fichier de prix
+
+Une ligne par article, `NOM : PRIX`. Le NOM est l'identifiant (`iron_ingot`) ou le nom anglais (`Iron Ingot`), sans tenir compte des majuscules. Raccourcis acceptés : `IRON` (lingot de fer), `GOLD`, `COPPER`, `NETHERITE`, `LAPIS`. Séparateurs acceptés : `:` `=` `;` ou tabulation. Les lignes vides et ce qui suit `#` sont ignorés.
+
+```
+# exemple
+IRON : 4
+oak_log : 3
+Oak Planks = 5
+diamond_sword : 2   # commentaire
+```
+
+Le prix est celui d'un **stack** pour les articles empilables, sinon celui de la pièce. Les lignes en erreur (article inconnu, prix non entier, doublon…) sont signalées et ignorées ; les autres sont appliquées.
 
 ## Prix appliqués
 

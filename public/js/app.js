@@ -489,7 +489,61 @@ async function adminItems(body) {
       h('div', { class: 'panel tablewrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Article', 'Prix (💎)', 'Réduction (%)', 'Masqué'].map(t => h('th', {}, t)))), h('tbody', {}, rows))),
       pager(adminState.itemPage, pages, p => { adminState.itemPage = p; draw(); }));
   };
+  // ---- import des prix par fichier .txt
+  const report = h('div', { style: 'margin-top:.8rem' });
+  const fileIn = h('input', { type: 'file', accept: '.txt,text/plain', 'aria-label': 'Fichier de prix (.txt)' });
+  let pendingText = '';
+  const MAXROWS = 150;
+  const showReport = (d) => {
+    const nodes = [];
+    nodes.push(h('p', {}, h('strong', {}, d.applied ? '✅ Import appliqué : ' : 'Aperçu : '),
+      `${d.valid} ligne${d.valid > 1 ? 's' : ''} valide${d.valid > 1 ? 's' : ''} (${d.changes.length} prix à modifier, ${d.unchanged} déjà identique${d.unchanged > 1 ? 's' : ''})`,
+      d.errors.length ? `, ${d.errors.length} erreur${d.errors.length > 1 ? 's' : ''}` : '', '.'));
+    if (d.changes.length) {
+      nodes.push(h('div', { class: 'tablewrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, ['Ligne', 'Article', 'Ancien prix', 'Nouveau prix'].map(t => h('th', {}, t)))),
+        h('tbody', {}, d.changes.slice(0, MAXROWS).map(r => h('tr', {},
+          h('td', {}, r.line),
+          h('td', {}, r.name, r.via === 'alias' ? h('div', { class: 'muted small' }, `« ${r.input} » interprété comme ${r.name}`) : null, h('div', { class: 'muted small' }, r.unit)),
+          h('td', {}, r.oldPrice), h('td', {}, h('strong', {}, r.newPrice))))))));
+      if (d.changes.length > MAXROWS) nodes.push(h('p', { class: 'muted small' }, `… et ${d.changes.length - MAXROWS} autres modifications non affichées.`));
+    }
+    if (d.errors.length) {
+      nodes.push(h('p', { class: 'msg-err' }, 'Lignes ignorées :'));
+      nodes.push(h('ul', {}, d.errors.slice(0, MAXROWS).map(e => h('li', {},
+        h('code', {}, `ligne ${e.line}`), ' ', e.text ? h('span', { class: 'muted' }, `« ${e.text} » — `) : null, e.reason,
+        e.suggestions && e.suggestions.length ? h('div', { class: 'muted small' }, 'Vouliez-vous dire : ', e.suggestions.join(', '), ' ?') : null))));
+    }
+    if (!d.applied && d.changes.length) {
+      nodes.push(h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: guard(async () => {
+          if (!confirm(`Modifier ${d.changes.length} prix ?${d.errors.length ? ` (${d.errors.length} ligne(s) en erreur seront ignorées.)` : ''}`)) return;
+          const r = await api('/admin/prices/import', 'POST', { text: pendingText, apply: true });
+          for (const c of r.changes) { const it = items.find(i => i.id === c.id); if (it) it.price = c.newPrice; }
+          toast(`${r.changes.length} prix modifié${r.changes.length > 1 ? 's' : ''}.`);
+          showReport(r); draw();
+        }) }, `Appliquer ${d.changes.length} modification${d.changes.length > 1 ? 's' : ''}`),
+        h('button', { class: 'btn secondary', onclick: () => { report.replaceChildren(); fileIn.value = ''; pendingText = ''; } }, 'Annuler')));
+    } else if (!d.applied) {
+      nodes.push(h('p', { class: 'muted' }, 'Rien à modifier.'));
+    }
+    fill(report, nodes);
+  };
+  fileIn.addEventListener('change', guard(async () => {
+    const f = fileIn.files[0]; if (!f) return;
+    if (f.size > 250 * 1024) { fileIn.value = ''; throw new Error('Fichier trop gros (250 Ko maximum).'); }
+    pendingText = await f.text();
+    showReport(await api('/admin/prices/import', 'POST', { text: pendingText, apply: false }));
+  }));
+
   body.replaceChildren(
+    h('div', { class: 'panel', style: 'margin-bottom:1rem' },
+      h('h3', {}, 'Importer les prix depuis un fichier .txt'),
+      h('p', { class: 'muted small' }, 'Une ligne par article : ', h('code', {}, 'NOM : PRIX'), ' (exemples : ', h('code', {}, 'iron_ingot : 4'), ', ', h('code', {}, 'Oak Log : 3'), ', ', h('code', {}, 'IRON : 4'), '). Le prix est celui d’un stack pour les articles empilables, sinon de la pièce. Les lignes vides et les commentaires (', h('code', {}, '# …'), ') sont ignorés. Vous verrez un aperçu avant que quoi que ce soit change.'),
+      h('div', { class: 'row' },
+        h('a', { class: 'btn secondary small', href: '/api/admin/prices/export', download: 'craft-stor-prix.txt' }, '⬇ Télécharger les prix actuels (modèle)'),
+        fileIn),
+      report),
     h('div', { class: 'panel', style: 'margin-bottom:1rem' },
       h('h3', {}, 'Réduction sur tout le catalogue'),
       h('div', { class: 'row' }, gd, '%', h('button', { class: 'btn', onclick: guard(async () => {
